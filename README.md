@@ -10,13 +10,14 @@ This uses an application-level client-server model although UDP itself has no su
 
     $ java cp . com.daftdroid.utils.udpdiag.EndPoint server 9999
 
-**On the client**
-
 (replace 9999 with the port number you want to listen on)
+
+**On the client**
 
     $ java cp . com.daftdroid.utils.udpdiag.EndPoint 1.2.3.4 9999
     
-(replace 1.2.3.4 and 9999 with the IP and port of the remote server)
+(replace 1.2.3.4 and 9999 with the IP and port of the remote server). Hostnames can be used for the address, but not "server" as it's a reserved
+word.
 
 Note: Once the server has received packets from a client it cannot be reached from other clients. This is becuase it uses `connect()`
 which establishes a peer-to-peer relationship in spite of UDP being connectionless. As a simple diagnostic tool this does not
