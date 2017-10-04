@@ -12,7 +12,7 @@ import java.util.Arrays;
 
 public class EndPoint
 {
-	public static void main (String args[])
+	public static void main (String args[]) throws Exception
 	{
 		String addr = args[0];
 		int port = Integer.parseInt(args[1]);
@@ -20,8 +20,22 @@ public class EndPoint
 		if (addr.toLowerCase().equals("server"))
 			server = true;
 
+		// Server: bind to the port
+		if (server)
+			socket = new DatagramSocket(port);
+		else
+		{
+			// Client - local details are ephemeral
+			socket = new DatagramSocket(); // totally ephemeral
+			
+			// Whereas remote details are known in advance
+			socket.connect(new InetSocketAddress(addr, port));
+		}
+		
+		
+		
 		tx = new TxThread();
-		rx = server ? new RxThread(port) : new RxThread(addr, port);
+		rx = new RxThread();
 		
 		tx.start();
 		// tx waits on keyboard input. If we are the client, it sends it to the known server
@@ -33,32 +47,18 @@ public class EndPoint
 	}
 	static boolean server;
 	
+	static TxThread tx;
+	static RxThread rx;
+	static DatagramSocket socket;
+	static boolean connected; // to make up for lack of udp state
 	static Object sync = new Object(); // allows the two following items to be modified atomically
 	static InetAddress lastSenderAddress;
 	static int lastSenderPort;
-	static int listenPort; // if we are server
 	static String remoteServerAddr; // if we are client
 	static int remoteServerPort; // if we are client
-	static int ephemeralPort; // if we are the client
-	static TxThread tx;
-	static RxThread rx;
 	
 	static class RxThread extends Thread
 	{
-	
-		public RxThread(int port)
-		{
-			listenPort = port;
-			remoteServerAddr = null;
-			remoteServerPort = 0;
-		}
-		public RxThread(String addr, int port)
-		{
-			remoteServerAddr = addr;
-			remoteServerPort = port;
-			listenPort = 0;
-		}
-		
 		@Override
 		public void run()
 		{
@@ -67,14 +67,11 @@ public class EndPoint
 			{
 				synchronized(this)
 				{
-					while (ephemeralPort == 0)
+					while (!connected)
 						try {wait();}catch (InterruptedException e) {return;}
 				}
 			}
 			try
-			(
-				DatagramSocket rxSocket = new DatagramSocket(listenPort);
-			)
 			{
 				
 				byte[] rxBuf = new byte[65536];
@@ -82,27 +79,25 @@ public class EndPoint
 				
 				while (true)
 				{
-					rxSocket.receive(rxPacket);
+					socket.receive(rxPacket);
 					
 					InetAddress senderAddr = rxPacket.getAddress();
 					int senderPort = rxPacket.getPort();
-					
-					if (server)
-					{
-						/*
-						 * Note the address of the current "client"
-						 */
-						synchronized (sync)
-						{
-							lastSenderAddress = senderAddr;
-							lastSenderPort = senderPort;
-						}
-					}
-					
+										
 					byte[] rxData = Arrays.copyOf(rxBuf, rxPacket.getLength());
 					String s = new String(rxData);
 
 					System.out.println("["+senderAddr.getHostAddress()+":"+senderPort+"]:"+s);
+					
+					if (server && !connected)
+					{
+						synchronized(tx)
+						{
+							socket.connect(senderAddr, senderPort);
+							connected = true;
+							tx.notify();
+						}
+					}
 				}
 			}
 			catch (Exception e)
@@ -120,46 +115,33 @@ public class EndPoint
 		{
 			BufferedReader buffer=new BufferedReader(new InputStreamReader(System.in));
 		
-			
-			try (DatagramSocket sock = new DatagramSocket();)
+			try
 			{
+				if (server && !connected)
+				{
+					// Server must wait till a client "connects" before it can send anything
+					synchronized(this)
+					{
+						while (!connected)
+						{
+							wait();
+						}
+					}
+				}
 				
 				while (true)
 				{
-					InetSocketAddress toAddress = null;
 					String txt = buffer.readLine();
 					
-					
-					if (server)
-					{
-						synchronized(sync)
-						{
-							if (lastSenderAddress == null)
-							{
-								System.out.println("No client to reply to!");
-								continue;
-							}
-							toAddress = new InetSocketAddress(lastSenderAddress, lastSenderPort);
-						}
-					}
-					else if (toAddress == null)
-					{
-						synchronized (sync)
-						{
-							toAddress = new InetSocketAddress(remoteServerAddr, remoteServerPort);
-						}
-					}
-
-
 					byte[] hello = txt.getBytes();
-					DatagramPacket p = new DatagramPacket(hello, hello.length, toAddress);
-					sock.send(p);
+					DatagramPacket p = new DatagramPacket(hello, hello.length);
+					socket.send(p);
 					
-					if (!server && ephemeralPort == 0)
+					if (!server && !connected)
 					{
 						synchronized(rx)
 						{
-							ephemeralPort = sock.getLocalPort();
+							connected = true;
 							rx.notify();
 						}
 					}
