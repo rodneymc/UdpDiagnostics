@@ -51,11 +51,6 @@ public class EndPoint
 	static RxThread rx;
 	static DatagramSocket socket;
 	static boolean connected; // to make up for lack of udp state
-	static Object sync = new Object(); // allows the two following items to be modified atomically
-	static InetAddress lastSenderAddress;
-	static int lastSenderPort;
-	static String remoteServerAddr; // if we are client
-	static int remoteServerPort; // if we are client
 	
 	static class RxThread extends Thread
 	{
